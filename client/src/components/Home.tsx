@@ -1,31 +1,52 @@
+import React from 'react';
 import { Link } from 'react-router-dom';
-import { useSocket } from '../contexts/SocketContext';
 
 const Home: React.FC = () => {
-  const { connected } = useSocket();
-
   return (
     <div className="home">
-      <h1>🌊 Tsunami Game</h1>
-      <div className="connection-status">
-        Status: {connected ? '🟢 Connected' : '🔴 Disconnected'}
-      </div>
-      
-      <div className="navigation">
-        <div className="nav-card">
-          <h2>🎮 Join as Player</h2>
-          <p>Play the game and compete with other players</p>
-          <Link to="/player" className="nav-button player-button">
-            Join Game
+      <div className="home-container">
+        <h1>🌊 Tsunami Card Game</h1>
+        <p className="home-description">
+          Build your neighborhood, protect your buildings, and survive the tsunami waves!
+        </p>
+        
+        <div className="home-actions">
+          <Link to="/game" className="btn btn-primary btn-large">
+            Play Game
           </Link>
         </div>
-        
-        <div className="nav-card">
-          <h2>📺 Game Board View</h2>
-          <p>Watch the game and see all players in action</p>
-          <Link to="/board" className="nav-button board-button">
-            View Board
-          </Link>
+
+        <div className="game-info">
+          <h2>How to Play</h2>
+          <div className="rules-grid">
+            <div className="rule-item">
+              <h3>🏗️ Build</h3>
+              <p>Use foundation cards to start buildings and regular cards to make them taller.</p>
+            </div>
+            <div className="rule-item">
+              <h3>🛡️ Protect</h3>
+              <p>Foundation cards provide temporary protection, roof cards give permanent protection.</p>
+            </div>
+            <div className="rule-item">
+              <h3>⚔️ Attack</h3>
+              <p>Attack other players unprotected buildings with matching color cards.</p>
+            </div>
+            <div className="rule-item">
+              <h3>🌊 Survive</h3>
+              <p>When tsunami cards appear, all cards below the tsunami value are destroyed!</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="game-features">
+          <h2>Features</h2>
+          <ul>
+            <li>Real-time multiplayer gameplay</li>
+            <li>2-4 players per game</li>
+            <li>Strategic card play and building management</li>
+            <li>Dynamic tsunami events</li>
+            <li>Beautiful card-based interface</li>
+          </ul>
         </div>
       </div>
     </div>

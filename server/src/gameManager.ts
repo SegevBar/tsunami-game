@@ -1,371 +1,450 @@
+import { Server } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { Server, Socket } from 'socket.io';
-import mongoose from 'mongoose';
+import { TsunamiGameLogic } from './gameLogic.js';
+import { UserService } from './services/userService.js';
+import { GameService } from './services/gameService.js';
 import {
-  GameState,
-  GameBoard,
-  Player,
-  PlayerData,
-  MoveData,
-  PlayerInfo,
-  Position,
   ServerToClientEvents,
   ClientToServerEvents,
   InterServerEvents,
-  SocketData
+  SocketData,
+  GameSocket,
+  GameState,
+  Player,
+  GameMove,
+  PlayerData,
+  MoveData
 } from './types.js';
-import { UserService } from './services/userService.js';
-import { GameService } from './services/gameService.js';
 
 export class GameManager {
   private io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
-  private players: Map<string, Player>;
-  private boardClients: Set<Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>>;
-  private gameState: GameState;
+  private games: Map<string, GameState> = new Map();
+  private playerToGame: Map<string, string> = new Map(); // playerId -> gameId
+  private socketToPlayer: Map<string, string> = new Map(); // socketId -> playerId
   private userService: UserService;
   private gameService: GameService;
-  private currentGameSession: mongoose.Types.ObjectId | null = null;
 
   constructor(io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>) {
     this.io = io;
-    this.players = new Map();
-    this.boardClients = new Set();
-    this.gameState = {
-      isActive: false,
-      currentPlayer: null,
-      board: this.initializeBoard(),
-      turn: 0
-    };
     this.userService = UserService.getInstance();
     this.gameService = GameService.getInstance();
   }
 
-  private initializeBoard(): GameBoard {
-    // Initialize a basic game board - customize based on your game needs
-    return {
-      width: 10,
-      height: 10,
-      tiles: Array(10).fill(null).map(() => Array(10).fill(null))
-    };
-  }
-
-  public async addPlayer(socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>, playerData: PlayerData): Promise<void> {
+  // Game Creation
+  async createGame(socket: GameSocket, data: { maxPlayers: number; nickname: string; email?: string }): Promise<void> {
     try {
+      const gameId = this.generateGameId();
       const playerId = uuidv4();
       
-      // Handle user authentication/creation if username is provided
-      let userId: string | undefined;
-      if (playerData.name) {
-        const user = await this.userService.findOrCreateGuestUser(playerData.name);
-        userId = user._id.toString();
-        socket.data.userId = userId;
-        socket.data.username = user.username;
-      }
-
-      const player: Player = {
-        id: playerId,
-        socket,
-        name: playerData.name || `Player ${this.players.size + 1}`,
-        isReady: false,
-        position: { x: 0, y: 0 },
-        userId,
-        ...playerData
+      // Create player
+      const player = TsunamiGameLogic.createPlayer(playerId, socket.id, data.nickname, data.email);
+      
+      // Create game state
+      const gameState: GameState = {
+        id: gameId,
+        players: [player],
+        currentPlayerIndex: 0,
+        deck: [],
+        discardPile: [],
+        maxPlayers: data.maxPlayers,
+        status: 'waiting',
+        turnOrder: [],
+        createdBy: playerId,
+        createdAt: new Date(),
+        tsunamiNumbers: []
       };
 
-      this.players.set(socket.id, player);
+      // Store game and player mappings
+      this.games.set(gameId, gameState);
+      this.playerToGame.set(playerId, gameId);
+      this.socketToPlayer.set(socket.id, playerId);
       
-      // Send player their ID and current game state
-      socket.emit('player-joined', {
-        playerId,
-        gameState: this.gameState,
-        players: Array.from(this.players.values()).map(p => this.getPlayerInfo(p))
-      });
+      // Update socket data
+      socket.data.playerId = playerId;
+      socket.data.gameId = gameId;
 
-      // Notify all clients about new player
-      this.broadcastToAll('player-connected', {
-        player: this.getPlayerInfo(player)
-      });
+      // Join socket room
+      socket.join(gameId);
 
-      console.log(`Player ${player.name} joined the game (User ID: ${userId})`);
+      // Notify client
+      socket.emit('game-created', { gameId, maxPlayers: data.maxPlayers });
+      socket.emit('game-joined', { gameId, players: gameState.players, gameState });
 
-      // Create game session if this is the first player and game isn't active
-      if (this.players.size === 1 && !this.gameState.isActive) {
-        await this.createGameSession();
-      }
+      console.log(`Game ${gameId} created by ${data.nickname} (${playerId})`);
     } catch (error) {
-      console.error('Error adding player:', error);
-      socket.emit('invalid-move', { reason: 'Failed to join game' });
+      console.error('Error creating game:', error);
+      socket.emit('game-error', 'Failed to create game');
     }
   }
 
-  public addBoardClient(socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>): void {
-    this.boardClients.add(socket);
-    
-    // Send current game state to board client
-    socket.emit('board-connected', {
-      gameState: this.gameState,
-      players: Array.from(this.players.values()).map(p => this.getPlayerInfo(p))
-    });
+  // Game Joining
+  async joinGame(socket: GameSocket, data: { gameId: string; nickname: string; email?: string }): Promise<void> {
+    try {
+      const gameState = this.games.get(data.gameId);
+      if (!gameState) {
+        socket.emit('game-error', 'Game not found');
+        return;
+      }
 
-    console.log('Board client connected');
+      if (gameState.status !== 'waiting') {
+        socket.emit('game-error', 'Game already started');
+        return;
+      }
+
+      if (gameState.players.length >= gameState.maxPlayers) {
+        socket.emit('game-error', 'Game is full');
+        return;
+      }
+
+      const playerId = uuidv4();
+      const player = TsunamiGameLogic.createPlayer(playerId, socket.id, data.nickname, data.email);
+
+      // Add player to game
+      gameState.players.push(player);
+      
+      // Store mappings
+      this.playerToGame.set(playerId, data.gameId);
+      this.socketToPlayer.set(socket.id, playerId);
+      
+      // Update socket data
+      socket.data.playerId = playerId;
+      socket.data.gameId = data.gameId;
+
+      // Join socket room
+      socket.join(data.gameId);
+
+      // Notify all players
+      this.io.to(data.gameId).emit('player-joined', player);
+      socket.emit('game-joined', { gameId: data.gameId, players: gameState.players, gameState });
+
+      console.log(`Player ${data.nickname} (${playerId}) joined game ${data.gameId}`);
+    } catch (error) {
+      console.error('Error joining game:', error);
+      socket.emit('game-error', 'Failed to join game');
+    }
   }
 
-  public async handlePlayerMove(socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>, moveData: MoveData): Promise<void> {
-    const player = this.players.get(socket.id);
-    if (!player) return;
-
+  // Game Starting
+  async startGame(socket: GameSocket, gameId: string): Promise<void> {
     try {
-      // Validate and process move
-      if (this.isValidMove(player, moveData)) {
-        // Update player position
-        player.position = moveData.position;
-        
-        // Update game state if needed
-        this.updateGameState(player, moveData);
+      const gameState = this.games.get(gameId);
+      if (!gameState) {
+        socket.emit('game-error', 'Game not found');
+        return;
+      }
 
-        // Save move to database if game session exists
-        if (this.currentGameSession && player.userId) {
-          await this.gameService.addMoveToSession(
-            this.currentGameSession,
-            player.userId,
-            player.name,
-            moveData.position,
-            this.gameState.turn
-          );
+      const playerId = socket.data.playerId;
+      if (gameState.createdBy !== playerId) {
+        socket.emit('game-error', 'Only game creator can start the game');
+        return;
+      }
 
-          // Update user stats
-          await this.userService.updateUserStats(
-            new mongoose.Types.ObjectId(player.userId),
-            { totalMoves: 1 }
-          );
-        }
+      if (gameState.status !== 'waiting') {
+        socket.emit('game-error', 'Game already started');
+        return;
+      }
 
-        // Broadcast move to all clients
-        this.broadcastToAll('player-moved', {
-          playerId: player.id,
-          moveData,
-          gameState: this.gameState
-        });
+      if (gameState.players.length < 2) {
+        socket.emit('game-error', 'Need at least 2 players to start');
+        return;
+      }
+
+      // Initialize game
+      const initializedGame = TsunamiGameLogic.initializeGame(
+        gameId,
+        gameState.players,
+        gameState.maxPlayers,
+        gameState.createdBy
+      );
+
+      // Update stored game state
+      this.games.set(gameId, initializedGame);
+
+      // Notify all players
+      this.io.to(gameId).emit('game-started', initializedGame);
+      
+      // Start first turn
+      const currentPlayer = initializedGame.players[initializedGame.currentPlayerIndex];
+      this.io.to(gameId).emit('turn-started', { currentPlayer, gameState: initializedGame });
+
+      // Save game session to database
+      await this.gameService.createGameSession({
+        gameId,
+        players: initializedGame.players.map(p => ({ playerId: p.id, nickname: p.nickname })),
+        startedAt: new Date(),
+        maxPlayers: initializedGame.maxPlayers
+      });
+
+      console.log(`Game ${gameId} started with ${initializedGame.players.length} players`);
+    } catch (error) {
+      console.error('Error starting game:', error);
+      socket.emit('game-error', 'Failed to start game');
+    }
+  }
+
+  // Move Handling
+  async handleMove(socket: GameSocket, data: MoveData): Promise<void> {
+    try {
+      const gameState = this.games.get(data.gameId);
+      if (!gameState) {
+        socket.emit('game-error', 'Game not found');
+        return;
+      }
+
+      const playerId = socket.data.playerId;
+      if (!playerId) {
+        socket.emit('game-error', 'Player not found');
+        return;
+      }
+
+      if (gameState.status !== 'playing') {
+        socket.emit('game-error', 'Game not in progress');
+        return;
+      }
+
+      // Validate move
+      const validation = TsunamiGameLogic.validateMove(gameState, playerId, data.move);
+      if (!validation.isValid) {
+        socket.emit('invalid-move', validation.error || 'Invalid move');
+        return;
+      }
+
+      // Execute move
+      if (data.move.type === 'end-turn') {
+        await this.handleEndTurn(gameState, playerId, data.gameId);
       } else {
-        socket.emit('invalid-move', { reason: 'Move not allowed' });
-      }
-    } catch (error) {
-      console.error('Error handling player move:', error);
-      socket.emit('invalid-move', { reason: 'Failed to process move' });
-    }
-  }
-
-  public async handleUserAuthentication(socket: Socket, data: { username: string; password?: string }): Promise<void> {
-    try {
-      const result = await this.userService.authenticateUser(data);
-      
-      socket.data.userId = result.user._id.toString();
-      socket.data.username = result.user.username;
-
-      socket.emit('user-authenticated', {
-        user: {
-          _id: result.user._id.toString(),
-          username: result.user.username,
-          email: result.user.email,
-          stats: result.user.stats,
-          preferences: result.user.preferences,
-          createdAt: result.user.createdAt,
-          lastActive: result.user.lastActive
-        },
-        token: result.token
-      });
-
-      console.log(`User authenticated: ${result.user.username}`);
-    } catch (error) {
-      console.error('Authentication error:', error);
-      socket.emit('invalid-move', { reason: 'Authentication failed' });
-    }
-  }
-
-  public async handleUserCreation(socket: Socket, data: { username: string; email?: string; password?: string }): Promise<void> {
-    try {
-      const user = await this.userService.createUser(data);
-      
-      socket.data.userId = user._id.toString();
-      socket.data.username = user.username;
-
-      socket.emit('user-authenticated', {
-        user: {
-          _id: user._id.toString(),
-          username: user.username,
-          email: user.email,
-          stats: user.stats,
-          preferences: user.preferences,
-          createdAt: user.createdAt,
-          lastActive: user.lastActive
+        TsunamiGameLogic.executeMove(gameState, playerId, data.move);
+        
+        // Notify all players of the move
+        const player = gameState.players.find(p => p.id === playerId);
+        if (player) {
+          this.io.to(data.gameId).emit('move-made', { 
+            move: data.move, 
+            gameState, 
+            player 
+          });
         }
-      });
+      }
 
-      console.log(`New user created: ${user.username}`);
+      // Save move to database (simplified for now)
+      // await this.gameService.addMoveToSession(data.gameId, {
+      //   playerId,
+      //   move: data.move,
+      //   timestamp: new Date()
+      // });
+
     } catch (error) {
-      console.error('User creation error:', error);
-      socket.emit('invalid-move', { reason: 'User creation failed' });
+      console.error('Error handling move:', error);
+      socket.emit('game-error', 'Failed to process move');
     }
   }
 
-  public async handleGetLeaderboard(socket: Socket): Promise<void> {
-    try {
-      const leaderboard = await this.userService.getLeaderboard();
-      
-      socket.emit('leaderboard-updated', {
-        leaderboard: leaderboard.map(user => ({
-          _id: user._id.toString(),
-          username: user.username,
-          email: user.email,
-          stats: user.stats,
-          preferences: user.preferences,
-          createdAt: user.createdAt,
-          lastActive: user.lastActive
-        }))
-      });
-    } catch (error) {
-      console.error('Error fetching leaderboard:', error);
-    }
-  }
-
-  public async handleGetGameHistory(socket: Socket, data?: { userId?: string }): Promise<void> {
-    try {
-      const userId = data?.userId ? new mongoose.Types.ObjectId(data.userId) : undefined;
-      const sessions = await this.gameService.getGameHistory(userId);
-      
-      socket.emit('game-history', { sessions });
-    } catch (error) {
-      console.error('Error fetching game history:', error);
-    }
-  }
-
-  private async createGameSession(): Promise<void> {
-    try {
-      const players = Array.from(this.players.values());
-      const session = await this.gameService.createGameSession({
-        players,
-        gameMode: 'standard'
-      });
-      
-      this.currentGameSession = session._id;
-      console.log(`Game session created: ${session._id}`);
-    } catch (error) {
-      console.error('Error creating game session:', error);
-    }
-  }
-
-  private isValidMove(player: Player, moveData: MoveData): boolean {
-    // Implement your game-specific move validation logic
-    const { x, y } = moveData.position;
-    return x >= 0 && x < this.gameState.board.width && 
-           y >= 0 && y < this.gameState.board.height;
-  }
-
-  private updateGameState(player: Player, moveData: MoveData): void {
-    // Implement your game-specific state update logic
-    this.gameState.turn++;
+  private async handleEndTurn(gameState: GameState, playerId: string, gameId: string): Promise<void> {
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player) return;
     
-    // Example: Update board tile
-    if (moveData.position) {
-      const { x, y } = moveData.position;
-      const tile = this.gameState.board.tiles[y];
-      if (tile) {
-        tile[x] = player.id;
+    // Execute end turn and get draw result
+    const drawResult = TsunamiGameLogic.executeMove(gameState, playerId, { type: 'end-turn' }) as any;
+    
+    // Check for tsunami
+    if (drawResult.tsunamiTriggered) {
+      const tsunamiCard = drawResult.tsunamiTriggered;
+      const destroyedCards = TsunamiGameLogic.executeTsunami(gameState, tsunamiCard.value);
+      
+      // Notify all players of tsunami
+      this.io.to(gameId).emit('tsunami-triggered', {
+        tsunamiValue: tsunamiCard.value,
+        destroyedCards
+      });
+    }
+
+    // Notify about cards drawn
+    if (drawResult.drawnCards.length > 0) {
+      this.io.to(gameId).emit('cards-drawn', {
+        playerId,
+        cardsCount: drawResult.drawnCards.length
+      });
+    }
+
+    // Check if player becomes idle
+    if (gameState.deck.length === 0 && drawResult.drawnCards.length === 0) {
+      player.isIdle = true;
+    }
+
+    // Check for game end
+    if (TsunamiGameLogic.checkGameEnd(gameState)) {
+      await this.endGame(gameState, gameId);
+      return;
+    }
+
+    // Start next turn
+    const currentPlayer = gameState.players[gameState.currentPlayerIndex];
+    this.io.to(gameId).emit('turn-started', { currentPlayer, gameState });
+  }
+
+  private async endGame(gameState: GameState, gameId: string): Promise<void> {
+    gameState.status = 'finished';
+    
+    const finalScores = TsunamiGameLogic.calculateScores(gameState);
+    const winner = TsunamiGameLogic.getWinner(gameState);
+
+    // Notify all players
+    this.io.to(gameId).emit('game-ended', { winner, finalScores });
+
+    // Update database (simplified for now)
+    // await this.gameService.endGameSession(gameId, {
+    //   endedAt: new Date(),
+    //   winner: { playerId: winner.id, nickname: winner.nickname },
+    //   finalScores: finalScores.map(s => ({ 
+    //     playerId: s.player.id, 
+    //     nickname: s.player.nickname, 
+    //     score: s.score 
+    //   }))
+    // });
+
+    // Clean up
+    setTimeout(() => {
+      this.cleanupGame(gameId);
+    }, 30000); // Clean up after 30 seconds
+
+    console.log(`Game ${gameId} ended. Winner: ${winner.nickname} with score ${winner.score}`);
+  }
+
+  // Game Leaving/Aborting
+  async leaveGame(socket: GameSocket, gameId: string): Promise<void> {
+    try {
+      const playerId = socket.data.playerId;
+      if (!playerId) return;
+
+      const gameState = this.games.get(gameId);
+      if (!gameState) return;
+
+      // Remove player from game
+      const playerIndex = gameState.players.findIndex(p => p.id === playerId);
+      if (playerIndex !== -1) {
+        gameState.players.splice(playerIndex, 1);
       }
+
+      // Clean up mappings
+      this.playerToGame.delete(playerId);
+      this.socketToPlayer.delete(socket.id);
+      socket.leave(gameId);
+
+      // Notify other players
+      this.io.to(gameId).emit('player-left', playerId);
+
+      // If game is empty or creator left, abort game
+      if (gameState.players.length === 0 || gameState.createdBy === playerId) {
+        await this.abortGame(gameId);
+      }
+
+      console.log(`Player ${playerId} left game ${gameId}`);
+    } catch (error) {
+      console.error('Error leaving game:', error);
     }
   }
 
-  public async removePlayer(socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>): Promise<void> {
-    const player = this.players.get(socket.id);
-    if (player) {
-      this.players.delete(socket.id);
-      
-      // Update final position in game session
-      if (this.currentGameSession && player.userId) {
-        await this.gameService.updatePlayerPosition(
-          this.currentGameSession,
-          player.userId,
-          player.position
-        );
-      }
-      
-      // Notify all clients about player disconnection
-      this.broadcastToAll('player-disconnected', {
-        playerId: player.id
+  async abortGame(gameId: string): Promise<void> {
+    try {
+      const gameState = this.games.get(gameId);
+      if (!gameState) return;
+
+      // Notify all players
+      this.io.to(gameId).emit('game-aborted');
+
+      // Clean up all players
+      gameState.players.forEach(player => {
+        this.playerToGame.delete(player.id);
+        this.socketToPlayer.delete(player.socketId);
       });
 
-      console.log(`Player ${player.name} left the game`);
+      // Remove game
+      this.games.delete(gameId);
 
-      // End game session if no players left
-      if (this.players.size === 0 && this.currentGameSession) {
-        await this.gameService.endGameSession(this.currentGameSession);
-        this.currentGameSession = null;
+      console.log(`Game ${gameId} aborted`);
+    } catch (error) {
+      console.error('Error aborting game:', error);
+    }
+  }
+
+  // Player Disconnection
+  async handleDisconnection(socket: GameSocket): Promise<void> {
+    try {
+      const playerId = this.socketToPlayer.get(socket.id);
+      if (!playerId) return;
+
+      const gameId = this.playerToGame.get(playerId);
+      if (!gameId) return;
+
+      const gameState = this.games.get(gameId);
+      if (!gameState) return;
+
+      // Update player socket info
+      const player = gameState.players.find(p => p.id === playerId);
+      if (player) {
+        // Mark as disconnected but keep in game for potential reconnection
+        this.io.to(gameId).emit('player-disconnected', playerId);
       }
+
+      // Clean up socket mapping
+      this.socketToPlayer.delete(socket.id);
+
+      console.log(`Player ${playerId} disconnected from game ${gameId}`);
+    } catch (error) {
+      console.error('Error handling disconnection:', error);
     }
-
-    // Remove from board clients if it was a board client
-    this.boardClients.delete(socket);
   }
 
-  private broadcastToAll(event: keyof ServerToClientEvents, data: Parameters<ServerToClientEvents[keyof ServerToClientEvents]>[0]): void {
-    // Broadcast to all players
-    this.players.forEach(player => {
-      (player.socket.emit as any)(event, data);
-    });
-
-    // Broadcast to all board clients
-    this.boardClients.forEach(boardSocket => {
-      (boardSocket.emit as any)(event, data);
-    });
+  // Utility Methods
+  private generateGameId(): string {
+    // Generate a 6-digit game ID
+    return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
-  public async startGame(): Promise<void> {
-    this.gameState.isActive = true;
-    const firstPlayer = Array.from(this.players.values())[0];
-    this.gameState.currentPlayer = firstPlayer?.id || null;
+  private cleanupGame(gameId: string): void {
+    const gameState = this.games.get(gameId);
+    if (!gameState) return;
+
+    // Clean up all mappings
+    gameState.players.forEach(player => {
+      this.playerToGame.delete(player.id);
+      this.socketToPlayer.delete(player.socketId);
+    });
+
+    // Remove game
+    this.games.delete(gameId);
     
-    this.broadcastToAll('game-started', {
-      gameState: this.gameState
-    });
-
-    // Update game session to active
-    if (this.currentGameSession) {
-      // Game session is already created and active by default
-      console.log(`Game started with session: ${this.currentGameSession}`);
-    }
+    console.log(`Game ${gameId} cleaned up`);
   }
 
-  public async resetGame(): Promise<void> {
-    // End current game session if exists
-    if (this.currentGameSession) {
-      await this.gameService.endGameSession(this.currentGameSession);
-      this.currentGameSession = null;
-    }
-
-    this.gameState = {
-      isActive: false,
-      currentPlayer: null,
-      board: this.initializeBoard(),
-      turn: 0
-    };
-
-    this.broadcastToAll('game-reset', {
-      gameState: this.gameState
-    });
-
-    // Create new game session if players are still connected
-    if (this.players.size > 0) {
-      await this.createGameSession();
-    }
+  // Authentication handlers (delegated to existing methods)
+  async handleUserAuthentication(socket: GameSocket, data: { username: string; password?: string }): Promise<void> {
+    // Implementation would go here - integrate with UserService
+    socket.emit('authentication-failed', 'Authentication not implemented yet');
   }
 
-  private getPlayerInfo(player: Player): PlayerInfo {
+  async handleUserCreation(socket: GameSocket, data: { username: string; email?: string; password?: string }): Promise<void> {
+    // Implementation would go here - integrate with UserService
+    socket.emit('user-creation-failed', 'User creation not implemented yet');
+  }
+
+  async handleGetLeaderboard(socket: GameSocket): Promise<void> {
+    // Implementation would go here - integrate with UserService
+    socket.emit('leaderboard', []);
+  }
+
+  async handleGetGameHistory(socket: GameSocket, data?: { userId?: string }): Promise<void> {
+    // Implementation would go here - integrate with GameService
+    socket.emit('game-history', []);
+  }
+
+  // Game Statistics
+  getGameStats() {
     return {
-      id: player.id,
-      name: player.name,
-      isReady: player.isReady,
-      position: player.position,
-      userId: player.userId
+      totalGames: this.games.size,
+      activeGames: Array.from(this.games.values()).filter(g => g.status === 'playing').length,
+      totalPlayers: Array.from(this.games.values()).reduce((sum, game) => sum + game.players.length, 0),
+      averageGameDuration: 0 // Would need to track this
     };
   }
 } 

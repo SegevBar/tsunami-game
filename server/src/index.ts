@@ -14,7 +14,6 @@ import {
   ClientToServerEvents,
   InterServerEvents,
   SocketData,
-  PlayerData,
   MoveData
 } from './types.js';
 
@@ -22,15 +21,29 @@ const app = express();
 const server = createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(server, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
-    methods: ['GET', 'POST']
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:3001', 
+      'http://localhost:3002',
+      process.env.CLIENT_URL || 'http://localhost:3000'
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true
   }
 });
 
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001', 
+    'http://localhost:3002',
+    process.env.CLIENT_URL || 'http://localhost:3000'
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // Initialize services
@@ -61,19 +74,30 @@ app.get('/api/stats', async (req, res) => {
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
 
-  // Handle player joining
-  socket.on('join-game', async (playerData: PlayerData) => {
-    await gameManager.addPlayer(socket, playerData);
+  // Game management
+  socket.on('create-game', async (data: { maxPlayers: number; nickname: string; email?: string }) => {
+    await gameManager.createGame(socket, data);
   });
 
-  // Handle game board client
-  socket.on('join-as-board', () => {
-    gameManager.addBoardClient(socket);
+  socket.on('join-game', async (data: { gameId: string; nickname: string; email?: string }) => {
+    await gameManager.joinGame(socket, data);
   });
 
-  // Handle player moves
-  socket.on('player-move', async (moveData: MoveData) => {
-    await gameManager.handlePlayerMove(socket, moveData);
+  socket.on('start-game', async (gameId: string) => {
+    await gameManager.startGame(socket, gameId);
+  });
+
+  socket.on('abort-game', async (gameId: string) => {
+    await gameManager.abortGame(gameId);
+  });
+
+  socket.on('leave-game', async (gameId: string) => {
+    await gameManager.leaveGame(socket, gameId);
+  });
+
+  // Game actions
+  socket.on('make-move', async (data: MoveData) => {
+    await gameManager.handleMove(socket, data);
   });
 
   // Handle user authentication
@@ -99,7 +123,7 @@ io.on('connection', (socket) => {
   // Handle disconnection
   socket.on('disconnect', async () => {
     console.log(`Client disconnected: ${socket.id}`);
-    await gameManager.removePlayer(socket);
+    await gameManager.handleDisconnection(socket);
   });
 });
 

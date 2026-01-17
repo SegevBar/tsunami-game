@@ -52,11 +52,29 @@ export function registerLobbyHandlers(
 
     sessionManager.startGame();
     console.log('Game started!');
+
+    const session = sessionManager.getSession();
+    const gameState = sessionManager.getPublicGameState();
+
+    // Log deck info
+    const fullState = sessionManager.getFullGameState();
+    if (fullState) {
+      console.log(`Deck created with ${fullState.deck.length + session.players.length * 5} cards, ${fullState.deck.length} remaining after dealing`);
+    }
+
     io.emit('game-started');
+
+    // Send each player their hand privately
+    for (const player of session.players) {
+      const hand = sessionManager.getPlayerHand(player.id);
+      if (hand) {
+        io.to(player.id).emit('hand-updated', hand);
+        console.log(`Dealt ${hand.cards.length} cards to ${player.name}`);
+      }
+    }
 
     // Notify about first player's turn
     const currentPlayer = sessionManager.getCurrentPlayer();
-    const gameState = sessionManager.getGameState();
     if (currentPlayer && gameState) {
       io.emit('turn-changed', {
         currentPlayerId: currentPlayer.id,
@@ -68,4 +86,3 @@ export function registerLobbyHandlers(
     broadcastSessionState();
   });
 }
-

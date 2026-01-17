@@ -1,15 +1,20 @@
 import {
   GameSession,
   GameState,
+  PublicGameState,
   Player,
+  PlayerHand,
   ClientType,
   PLAYER_COLORS,
   createInitialSession,
-  createInitialGameState,
 } from '../types';
+import { createDeck, shuffleDeck, drawCards } from '../game';
+
+const INITIAL_HAND_SIZE = 5;
 
 export class SessionManager {
   private session: GameSession = createInitialSession();
+  private fullGameState: GameState | null = null;
   private socketClientType = new Map<string, ClientType>();
   private socketPlayerId = new Map<string, string>();
   private hostSocketId: string | null = null;
@@ -18,8 +23,26 @@ export class SessionManager {
     return this.session;
   }
 
-  getGameState(): GameState | null {
-    return this.session.gameState;
+  getFullGameState(): GameState | null {
+    return this.fullGameState;
+  }
+
+  getPublicGameState(): PublicGameState | null {
+    if (!this.fullGameState) return null;
+
+    return {
+      turn: this.fullGameState.turn,
+      deckCount: this.fullGameState.deck.length,
+      hands: this.fullGameState.hands.map((hand) => ({
+        playerId: hand.playerId,
+        cardCount: hand.cards.length,
+      })),
+    };
+  }
+
+  getPlayerHand(playerId: string): PlayerHand | null {
+    if (!this.fullGameState) return null;
+    return this.fullGameState.hands.find((h) => h.playerId === playerId) || null;
   }
 
   getClientType(socketId: string): ClientType | undefined {
@@ -106,15 +129,44 @@ export class SessionManager {
 
   startGame(): void {
     this.session.phase = 'playing';
-    this.session.gameState = createInitialGameState();
+
+    // Create and shuffle deck
+    const playerCount = this.session.players.length;
+    let deck = createDeck(playerCount);
+    deck = shuffleDeck(deck);
+
+    // Deal initial hands
+    const hands: PlayerHand[] = [];
+    for (const player of this.session.players) {
+      const { drawn, remaining } = drawCards(deck, INITIAL_HAND_SIZE);
+      hands.push({
+        playerId: player.id,
+        cards: drawn,
+      });
+      deck = remaining;
+    }
+
+    // Set full game state (server-side)
+    this.fullGameState = {
+      turn: {
+        currentPlayerIndex: 0,
+        turnNumber: 1,
+        roundNumber: 1,
+      },
+      deck,
+      hands,
+    };
+
+    // Set public game state (client-side)
+    this.session.gameState = this.getPublicGameState();
   }
 
   endTurn(): { nextPlayer: Player; turnNumber: number; roundNumber: number } | null {
-    if (!this.session.gameState || this.session.phase !== 'playing') {
+    if (!this.fullGameState || this.session.phase !== 'playing') {
       return null;
     }
 
-    const { turn } = this.session.gameState;
+    const { turn } = this.fullGameState;
     const playerCount = this.session.players.length;
 
     // Move to next player
@@ -125,6 +177,9 @@ export class SessionManager {
     if (turn.currentPlayerIndex === 0) {
       turn.roundNumber++;
     }
+
+    // Update public game state
+    this.session.gameState = this.getPublicGameState();
 
     const nextPlayer = this.session.players[turn.currentPlayerIndex];
 

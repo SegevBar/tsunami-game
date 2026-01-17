@@ -31,6 +31,46 @@
   }
 }
 
+.tsunami-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(0, 100, 150, 0.3);
+  border-radius: 0.5rem;
+  border: 2px solid rgba(0, 150, 200, 0.4);
+  transition: all 0.3s ease;
+
+  .tsunami-icon {
+    font-size: 1.25rem;
+  }
+
+  .tsunami-count {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  &.imminent {
+    background: rgba(200, 50, 50, 0.3);
+    border-color: rgba(255, 100, 100, 0.6);
+    animation: tsunami-pulse 1s ease-in-out infinite;
+
+    .tsunami-count {
+      color: #ff6b6b;
+      font-weight: 600;
+    }
+  }
+}
+
+@keyframes tsunami-pulse {
+  0%, 100% { 
+    box-shadow: 0 0 10px rgba(255, 100, 100, 0.3);
+  }
+  50% { 
+    box-shadow: 0 0 20px rgba(255, 100, 100, 0.6);
+  }
+}
+
 .current-turn {
   display: flex;
   align-items: center;

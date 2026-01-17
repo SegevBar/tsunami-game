@@ -1,14 +1,14 @@
-import { Card, getCardName } from '../../../../types';
+import { RegularCard, getCardName } from '../../../../types';
 import './CardComponent.scss';
 
 interface CardComponentProps {
-  card: Card;
+  card: RegularCard;
   onClick?: () => void;
   selected?: boolean;
 }
 
 export function CardComponent({ card, onClick, selected }: CardComponentProps) {
-  const cardName = getCardName(card.value);
+  const cardName = getCardName(card);
   const isSpecial = card.value === 0 || card.value === 6;
 
   return (

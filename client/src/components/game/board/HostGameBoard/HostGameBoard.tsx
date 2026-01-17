@@ -15,6 +15,8 @@ export function HostGameBoard({ session, currentPlayer }: HostGameBoardProps) {
     return handInfo?.cardCount ?? 0;
   };
 
+  const { cardsUntilNextTsunami } = session.gameState;
+
   return (
     <div className="host-game-board">
       <div className="game-info-bar">
@@ -22,6 +24,14 @@ export function HostGameBoard({ session, currentPlayer }: HostGameBoardProps) {
         <div className="deck-info">
           <span className="deck-icon">🃏</span>
           <span className="deck-count">{session.gameState.deckCount} cards in deck</span>
+        </div>
+        <div className={`tsunami-warning ${cardsUntilNextTsunami !== null && cardsUntilNextTsunami <= 5 ? 'imminent' : ''}`}>
+          <span className="tsunami-icon">🌊</span>
+          {cardsUntilNextTsunami !== null ? (
+            <span className="tsunami-count">{cardsUntilNextTsunami} cards until tsunami</span>
+          ) : (
+            <span className="tsunami-count">No more tsunamis</span>
+          )}
         </div>
       </div>
 

@@ -7,8 +7,16 @@ import {
   ClientType,
   PLAYER_COLORS,
   createInitialSession,
+  DeckCard,
 } from '../types';
-import { createDeck, shuffleDeck, drawCards } from '../game';
+import {
+  createDeck,
+  shuffleDeck,
+  drawCards,
+  selectRandomTsunamiCards,
+  insertTsunamiCards,
+  findNextTsunamiPosition,
+} from '../game';
 
 const INITIAL_HAND_SIZE = 5;
 
@@ -30,6 +38,8 @@ export class SessionManager {
   getPublicGameState(): PublicGameState | null {
     if (!this.fullGameState) return null;
 
+    const nextTsunamiPos = findNextTsunamiPosition(this.fullGameState.deck);
+
     return {
       turn: this.fullGameState.turn,
       deckCount: this.fullGameState.deck.length,
@@ -37,6 +47,7 @@ export class SessionManager {
         playerId: hand.playerId,
         cardCount: hand.cards.length,
       })),
+      cardsUntilNextTsunami: nextTsunamiPos,
     };
   }
 
@@ -132,19 +143,30 @@ export class SessionManager {
 
     // Create and shuffle deck
     const playerCount = this.session.players.length;
-    let deck = createDeck(playerCount);
-    deck = shuffleDeck(deck);
+    const regularDeck = createDeck(playerCount);
+    const shuffledDeck = shuffleDeck(regularDeck);
 
-    // Deal initial hands
+    // Deal initial hands (before inserting tsunamis)
+    // At this point deck only has regular cards, so we can safely cast
     const hands: PlayerHand[] = [];
+    let remainingDeck = shuffledDeck as DeckCard[];
     for (const player of this.session.players) {
-      const { drawn, remaining } = drawCards(deck, INITIAL_HAND_SIZE);
+      const { drawn, remaining } = drawCards(remainingDeck, INITIAL_HAND_SIZE);
       hands.push({
         playerId: player.id,
         cards: drawn,
       });
-      deck = remaining;
+      remainingDeck = remaining;
     }
+
+    // Select and insert tsunami cards
+    const tsunamis = selectRandomTsunamiCards(3);
+    console.log('=== TSUNAMI CARDS SETUP ===');
+    console.log(`Selected tsunami values: ${tsunamis.map((t) => t.value).join(', ')}`);
+
+    const { deck: deckWithTsunamis, positions, log } = insertTsunamiCards(remainingDeck, tsunamis);
+    log.forEach((msg) => console.log(msg));
+    console.log('===========================');
 
     // Set full game state (server-side)
     this.fullGameState = {
@@ -153,8 +175,9 @@ export class SessionManager {
         turnNumber: 1,
         roundNumber: 1,
       },
-      deck,
+      deck: deckWithTsunamis,
       hands,
+      tsunamiPositions: positions,
     };
 
     // Set public game state (client-side)

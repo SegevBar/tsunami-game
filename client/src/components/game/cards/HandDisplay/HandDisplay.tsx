@@ -1,10 +1,10 @@
-import { Card } from '../../../../types';
+import { RegularCard } from '../../../../types';
 import { CardComponent } from '../CardComponent';
 import './HandDisplay.scss';
 
 interface HandDisplayProps {
-  cards: Card[];
-  onCardClick?: (card: Card) => void;
+  cards: RegularCard[];
+  onCardClick?: (card: RegularCard) => void;
   selectedCardId?: string | null;
 }
 

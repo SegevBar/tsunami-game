@@ -1,0 +1,144 @@
+.role-selection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  padding: 2rem;
+  width: 100%;
+  max-width: 800px;
+
+  h2 {
+    font-size: 2rem;
+    color: var(--foam-white);
+  }
+}
+
+.role-cards {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.role-card {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 119, 190, 0.3);
+  border-radius: 1rem;
+  padding: 2rem;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  transition: all 0.2s ease;
+
+  &:hover:not(.disabled) {
+    border-color: var(--wave-light);
+    transform: translateY(-4px);
+  }
+
+  &.disabled {
+    opacity: 0.6;
+  }
+
+  .role-icon {
+    font-size: 3rem;
+  }
+
+  h3 {
+    font-size: 1.25rem;
+    color: var(--foam-white);
+  }
+
+  p {
+    color: var(--text-secondary);
+    text-align: center;
+    font-size: 0.9rem;
+  }
+
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  input {
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(0, 119, 190, 0.3);
+    background: rgba(0, 0, 0, 0.3);
+    color: var(--text-primary);
+    font-size: 1rem;
+    width: 100%;
+
+    &::placeholder {
+      color: var(--text-secondary);
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--wave-light);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+    }
+  }
+
+  button {
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    border: none;
+    background: linear-gradient(135deg, var(--wave-primary) 0%, var(--wave-light) 100%);
+    color: white;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+
+    &:hover:not(:disabled) {
+      transform: scale(1.02);
+      box-shadow: 0 4px 20px rgba(0, 168, 232, 0.3);
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  }
+}
+
+.current-players {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+
+  h4 {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+}
+
+.player-list {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.player-chip {
+  padding: 0.5rem 1rem;
+  border-radius: 2rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: white;
+
+  &.red { background: #e74c3c; }
+  &.blue { background: #3498db; }
+  &.green { background: #27ae60; }
+  &.yellow { background: #f39c12; color: #333; }
+  &.purple { background: #9b59b6; }
+}
+

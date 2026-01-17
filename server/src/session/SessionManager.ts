@@ -1,9 +1,11 @@
 import {
   GameSession,
+  GameState,
   Player,
   ClientType,
   PLAYER_COLORS,
   createInitialSession,
+  createInitialGameState,
 } from '../types';
 
 export class SessionManager {
@@ -16,6 +18,10 @@ export class SessionManager {
     return this.session;
   }
 
+  getGameState(): GameState | null {
+    return this.session.gameState;
+  }
+
   getClientType(socketId: string): ClientType | undefined {
     return this.socketClientType.get(socketId);
   }
@@ -26,6 +32,20 @@ export class SessionManager {
 
   isHostConnected(): boolean {
     return this.session.hostConnected;
+  }
+
+  getCurrentPlayer(): Player | null {
+    if (!this.session.gameState) return null;
+    return this.session.players[this.session.gameState.turn.currentPlayerIndex] || null;
+  }
+
+  getCurrentPlayerId(): string | null {
+    const player = this.getCurrentPlayer();
+    return player?.id || null;
+  }
+
+  isPlayerTurn(playerId: string): boolean {
+    return this.getCurrentPlayerId() === playerId;
   }
 
   canJoinAsPlayer(): { allowed: boolean; reason?: string } {
@@ -86,6 +106,33 @@ export class SessionManager {
 
   startGame(): void {
     this.session.phase = 'playing';
+    this.session.gameState = createInitialGameState();
+  }
+
+  endTurn(): { nextPlayer: Player; turnNumber: number; roundNumber: number } | null {
+    if (!this.session.gameState || this.session.phase !== 'playing') {
+      return null;
+    }
+
+    const { turn } = this.session.gameState;
+    const playerCount = this.session.players.length;
+
+    // Move to next player
+    turn.currentPlayerIndex = (turn.currentPlayerIndex + 1) % playerCount;
+    turn.turnNumber++;
+
+    // Check if we completed a round (back to first player)
+    if (turn.currentPlayerIndex === 0) {
+      turn.roundNumber++;
+    }
+
+    const nextPlayer = this.session.players[turn.currentPlayerIndex];
+
+    return {
+      nextPlayer,
+      turnNumber: turn.turnNumber,
+      roundNumber: turn.roundNumber,
+    };
   }
 
   removeClient(socketId: string): { type: ClientType | undefined; playerId?: string } {
@@ -116,4 +163,3 @@ export class SessionManager {
 }
 
 export const sessionManager = new SessionManager();
-

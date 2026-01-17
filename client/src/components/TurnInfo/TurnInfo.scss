@@ -1,0 +1,33 @@
+.turn-info-badges {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+
+  .round-badge,
+  .turn-badge {
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+  }
+
+  .round-badge {
+    background: rgba(0, 119, 190, 0.2);
+    color: var(--wave-light);
+    border: 1px solid rgba(0, 119, 190, 0.3);
+  }
+
+  .turn-badge {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+  }
+}
+
+.turn-info-inline {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+

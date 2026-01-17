@@ -1,0 +1,103 @@
+.player-game-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 400px;
+}
+
+.turn-status {
+  text-align: center;
+
+  .your-turn {
+    font-size: 2rem;
+    color: var(--success);
+    animation: glow 2s ease-in-out infinite;
+  }
+
+  .waiting-turn {
+    font-size: 1.5rem;
+    color: var(--text-secondary);
+
+    span {
+      font-weight: 600;
+
+      &.red { color: #e74c3c; }
+      &.blue { color: #3498db; }
+      &.green { color: #27ae60; }
+      &.yellow { color: #f39c12; }
+      &.purple { color: #9b59b6; }
+    }
+  }
+}
+
+@keyframes glow {
+  0%, 100% { text-shadow: 0 0 10px rgba(0, 212, 170, 0.5); }
+  50% { text-shadow: 0 0 20px rgba(0, 212, 170, 0.8); }
+}
+
+.action-area {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.actions-placeholder {
+  width: 100%;
+  padding: 2rem;
+  background: rgba(0, 0, 0, 0.3);
+  border: 2px dashed rgba(0, 212, 170, 0.3);
+  border-radius: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+
+  p {
+    font-size: 1.125rem;
+    color: var(--text-secondary);
+  }
+
+  .hint {
+    font-size: 0.875rem;
+    opacity: 0.7;
+  }
+}
+
+.end-turn-btn {
+  width: 100%;
+  padding: 1rem 2rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, var(--wave-primary) 0%, var(--wave-light) 100%);
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 20px rgba(0, 168, 232, 0.4);
+  }
+}
+
+.waiting-area {
+  width: 100%;
+}
+
+.waiting-message {
+  width: 100%;
+  padding: 3rem 2rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 1rem;
+  text-align: center;
+
+  p {
+    font-size: 1.25rem;
+    color: var(--text-secondary);
+  }
+}
+
